@@ -56,8 +56,6 @@ def process_bigseller_file(uploaded_file):
 
     st.info("1. Reading Excel file...")
     df = pd.read_excel(uploaded_file, dtype=str)
-    st.write("Original data preview (first 5 rows):")
-    st.dataframe(df.head())
 
     st.info("2. Extracting mcode from 'SKU Name'...")
     df['mcode'] = df['SKU Name'].apply(extract_mcode)
