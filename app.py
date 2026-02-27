@@ -91,8 +91,6 @@ def process_bigseller_file(uploaded_file):
     df['Count'] = df.apply(get_stock_count, axis=1)
 
     st.success("File processing completed!")
-    st.write("Processed data preview (first 5 rows):")
-    st.dataframe(df.head())
     
     found_mcodes = set(stock_map.keys())
     all_mcodes = set(mcode_list)
