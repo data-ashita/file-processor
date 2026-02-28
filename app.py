@@ -134,20 +134,16 @@ def get_latest_stock_update_date():
         return None
     
     try:
-        # Try to fetch all records and find the latest date
-        response = supabase.table('server').select('date').execute()
+        # Fetch records where date is not null, ordered by date descending
+        response = supabase.table('server').select('date').not_.is_('date', 'null').order('date', desc=True).limit(1).execute()
         if response.data and len(response.data) > 0:
-            dates = [item.get('date') for item in response.data if item.get('date')]
-            if dates:
+            latest_date_str = response.data[0].get('date')
+            if latest_date_str:
                 try:
-                    dates_parsed = pd.to_datetime(dates)
-                    latest_date = dates_parsed.max()
+                    latest_date = pd.to_datetime(latest_date_str)
                     return latest_date.strftime('%Y-%m-%d %H:%M:%S')
-                except Exception as e:
-                    # If parsing fails, sort as strings
-                    dates_sorted = sorted([str(d) for d in dates], reverse=True)
-                    if dates_sorted:
-                        return str(dates_sorted[0])
+                except Exception:
+                    return str(latest_date_str)
     except Exception as e:
         pass
     
