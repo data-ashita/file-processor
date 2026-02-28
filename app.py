@@ -127,22 +127,28 @@ def process_bigseller_file(uploaded_file):
     return df
 
 # --- Helper Function to Get Latest Stock Update Date ---
+@st.cache_data(ttl=300)
 def get_latest_stock_update_date():
     """Fetch the latest stock update date from Supabase"""
     if supabase is None:
         return None
     
     try:
-        response = supabase.table('server').select('date').order('date', desc=True).limit(1).execute()
+        # Try to fetch all records and find the latest date
+        response = supabase.table('server').select('date').execute()
         if response.data and len(response.data) > 0:
-            latest_date_str = response.data[0].get('date')
-            if latest_date_str:
+            dates = [item.get('date') for item in response.data if item.get('date')]
+            if dates:
                 try:
-                    latest_date = pd.to_datetime(latest_date_str)
+                    dates_parsed = pd.to_datetime(dates)
+                    latest_date = dates_parsed.max()
                     return latest_date.strftime('%Y-%m-%d %H:%M:%S')
-                except Exception:
-                    return str(latest_date_str)
-    except Exception:
+                except Exception as e:
+                    # If parsing fails, sort as strings
+                    dates_sorted = sorted([str(d) for d in dates], reverse=True)
+                    if dates_sorted:
+                        return str(dates_sorted[0])
+    except Exception as e:
         pass
     
     return None
@@ -171,6 +177,8 @@ with tab1:
     latest_date = get_latest_stock_update_date()
     if latest_date:
         st.info(f"Last stock data updated: {latest_date}")
+    else:
+        st.warning("Unable to fetch latest stock update date. Please check if the 'date' column exists in Supabase.")
     
     uploaded_file_bs = st.file_uploader("Please upload the BigSeller Excel file", type=["xlsx", "xls"], key="bigseller_uploader")
     if uploaded_file_bs is not None:
