@@ -68,7 +68,7 @@ def process_bigseller_file(uploaded_file):
 
     st.info(f"3. Querying Supabase for {len(mcode_list)} mcode entries...")
     try:
-        response = supabase.table('server').select('mcode, stock_count').in_('mcode', mcode_list).execute()
+        response = supabase.table('server').select('mcode, stock_count, date').in_('mcode', mcode_list).execute()
         supabase_data = response.data
     except Exception as e:
         st.error(f"Error querying Supabase: {e}")
@@ -76,6 +76,20 @@ def process_bigseller_file(uploaded_file):
 
     stock_map = {str(item['mcode']).strip(): item['stock_count'] for item in supabase_data}
     st.success(f"Successfully retrieved {len(stock_map)} inventory records from Supabase.")
+    
+    # Extract and display the latest date from all records
+    if supabase_data:
+        dates = [item.get('date') for item in supabase_data if item.get('date')]
+        if dates:
+            try:
+                dates_parsed = pd.to_datetime(dates)
+                latest_date = dates_parsed.max()
+                st.info(f"Last updated: {latest_date.strftime('%Y-%m-%d %H:%M:%S')}")
+            except Exception:
+                dates_sorted = sorted([str(d) for d in dates])
+                if dates_sorted:
+                    st.info(f"Last updated: {dates_sorted[-1]}")
+
 
     st.info("4. Updating 'Count' column...")
     
@@ -83,7 +97,9 @@ def process_bigseller_file(uploaded_file):
         mcode = row['mcode']
         if pd.notna(mcode) and mcode in stock_map:
             stock = stock_map[mcode]
-            return max(int(stock), 0)
+            # Convert to float first to handle decimal types, then to int (truncates decimal part)
+            stock_int = int(float(stock))
+            return max(stock_int, 0)
         return 0
 
     df['Count'] = df.apply(get_stock_count, axis=1)
