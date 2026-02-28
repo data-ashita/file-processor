@@ -126,6 +126,27 @@ def process_bigseller_file(uploaded_file):
     df = df.drop(columns=['mcode'])
     return df
 
+# --- Helper Function to Get Latest Stock Update Date ---
+def get_latest_stock_update_date():
+    """Fetch the latest stock update date from Supabase"""
+    if supabase is None:
+        return None
+    
+    try:
+        response = supabase.table('server').select('date').order('date', desc=True).limit(1).execute()
+        if response.data and len(response.data) > 0:
+            latest_date_str = response.data[0].get('date')
+            if latest_date_str:
+                try:
+                    latest_date = pd.to_datetime(latest_date_str)
+                    return latest_date.strftime('%Y-%m-%d %H:%M:%S')
+                except Exception:
+                    return str(latest_date_str)
+    except Exception:
+        pass
+    
+    return None
+
 # --- Shopee Processing Function (Placeholder) ---
 def process_shopee_file(uploaded_file):
     """Process Shopee uploaded Excel file (placeholder)"""
@@ -145,6 +166,12 @@ st.caption("Upload an Excel file, and the system will process it and generate a 
 tab1, tab2 = st.tabs(["BigSeller", "Shopee"])
 with tab1:
     st.header("BigSeller Data Processing")
+    
+    # Display the latest stock update date
+    latest_date = get_latest_stock_update_date()
+    if latest_date:
+        st.info(f"Last stock data updated: {latest_date}")
+    
     uploaded_file_bs = st.file_uploader("Please upload the BigSeller Excel file", type=["xlsx", "xls"], key="bigseller_uploader")
     if uploaded_file_bs is not None:
         if st.button("🚀 Process BigSeller File", key="bigseller_process"):
