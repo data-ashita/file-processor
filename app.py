@@ -170,16 +170,19 @@ def get_latest_stock_update_date(max_retries=3, initial_delay=1):
 
 # --- Google Drive Integration ---
 def get_google_drive_service():
-    """Initialize Google Drive service using service account credentials"""
+    """Initialize Google Drive service using service account credentials from Streamlit Secrets"""
     try:
-        # Read service account credentials from uploaded file
-        if os.path.exists('/home/ubuntu/upload/service_account.json'):
-            credentials = service_account.Credentials.from_service_account_file(
-                '/home/ubuntu/upload/service_account.json',
+        # Read service account credentials from Streamlit Secrets
+        if "google" in st.secrets:
+            credentials_dict = dict(st.secrets["google"])
+            credentials = service_account.Credentials.from_service_account_info(
+                credentials_dict,
                 scopes=['https://www.googleapis.com/auth/drive']
             )
             service = build('drive', 'v3', credentials=credentials)
             return service
+        else:
+            st.error("Google credentials not found in Streamlit Secrets")
     except Exception as e:
         st.error(f"Error connecting to Google Drive: {e}")
     return None
@@ -215,16 +218,19 @@ def update_file_by_id(service, file_id, file_content):
 
 # --- Google Drive Integration ---
 def get_google_drive_service():
-    """Initialize Google Drive service using service account credentials"""
+    """Initialize Google Drive service using service account credentials from Streamlit Secrets"""
     try:
-        # Read service account credentials from uploaded file
-        if os.path.exists('/home/ubuntu/upload/service_account.json'):
-            credentials = service_account.Credentials.from_service_account_file(
-                '/home/ubuntu/upload/service_account.json',
+        # Read service account credentials from Streamlit Secrets
+        if "google" in st.secrets:
+            credentials_dict = dict(st.secrets["google"])
+            credentials = service_account.Credentials.from_service_account_info(
+                credentials_dict,
                 scopes=['https://www.googleapis.com/auth/drive']
             )
             service = build('drive', 'v3', credentials=credentials)
             return service
+        else:
+            st.error("Google credentials not found in Streamlit Secrets")
     except Exception as e:
         st.error(f"Error connecting to Google Drive: {e}")
     return None
