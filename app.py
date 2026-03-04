@@ -4,7 +4,12 @@ import pandas as pd
 import io
 import re
 import time
+import json
+import os
 from supabase import create_client, Client
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaFileUpload, MediaIoBaseUpload
 
 # --- Supabase Connection Configuration ---
 SUPABASE_URL = "https://tqpwktjctngqtyisqtma.supabase.co"
@@ -162,6 +167,96 @@ def get_latest_stock_update_date(max_retries=3, initial_delay=1):
                 pass
     
     return None
+
+# --- Google Drive Integration ---
+def get_google_drive_service():
+    """Initialize Google Drive service using service account credentials"""
+    try:
+        # Read service account credentials from uploaded file
+        if os.path.exists('/home/ubuntu/upload/service_account.json'):
+            credentials = service_account.Credentials.from_service_account_file(
+                '/home/ubuntu/upload/service_account.json',
+                scopes=['https://www.googleapis.com/auth/drive']
+            )
+            service = build('drive', 'v3', credentials=credentials)
+            return service
+    except Exception as e:
+        st.error(f"Error connecting to Google Drive: {e}")
+    return None
+
+def get_file_status_and_date(service, file_id):
+    """Get file status and last modified date from Google Drive"""
+    try:
+        file = service.files().get(fileId=file_id, fields='id, name, modifiedTime, trashed').execute()
+        
+        if file.get('trashed'):
+            return 'error', None
+        
+        modified_time = file.get('modifiedTime')
+        if modified_time:
+            # Convert ISO format to readable format
+            from datetime import datetime
+            dt = datetime.fromisoformat(modified_time.replace('Z', '+00:00'))
+            return 'valid', dt.strftime('%Y-%m-%d %H:%M:%S')
+        
+        return 'valid', 'Unknown'
+    except Exception as e:
+        return 'error', None
+
+def update_file_by_id(service, file_id, file_content):
+    """Update a file in Google Drive by ID (overwrites content, keeps ID)"""
+    try:
+        media = MediaIoBaseUpload(file_content, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        file = service.files().update(fileId=file_id, media_body=media, fields='id, modifiedTime').execute()
+        return True, file.get('id'), file.get('modifiedTime')
+    except Exception as e:
+        st.error(f"Error updating file: {e}")
+    return False, None, None
+
+# --- Google Drive Integration ---
+def get_google_drive_service():
+    """Initialize Google Drive service using service account credentials"""
+    try:
+        # Read service account credentials from uploaded file
+        if os.path.exists('/home/ubuntu/upload/service_account.json'):
+            credentials = service_account.Credentials.from_service_account_file(
+                '/home/ubuntu/upload/service_account.json',
+                scopes=['https://www.googleapis.com/auth/drive']
+            )
+            service = build('drive', 'v3', credentials=credentials)
+            return service
+    except Exception as e:
+        st.error(f"Error connecting to Google Drive: {e}")
+    return None
+
+def get_file_status_and_date(service, file_id):
+    """Get file status and last modified date from Google Drive"""
+    try:
+        file = service.files().get(fileId=file_id, fields='id, name, modifiedTime, trashed').execute()
+        
+        if file.get('trashed'):
+            return 'error', None
+        
+        modified_time = file.get('modifiedTime')
+        if modified_time:
+            # Convert ISO format to readable format
+            from datetime import datetime
+            dt = datetime.fromisoformat(modified_time.replace('Z', '+00:00'))
+            return 'valid', dt.strftime('%Y-%m-%d %H:%M:%S')
+        
+        return 'valid', 'Unknown'
+    except Exception as e:
+        return 'error', None
+
+def update_file_by_id(service, file_id, file_content):
+    """Update a file in Google Drive by ID (overwrites content, keeps ID)"""
+    try:
+        media = MediaIoBaseUpload(file_content, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        file = service.files().update(fileId=file_id, media_body=media, fields='id, modifiedTime').execute()
+        return True, file.get('id'), file.get('modifiedTime')
+    except Exception as e:
+        st.error(f"Error updating file: {e}")
+    return False, None, None
 
 # --- PO Processing Helper Functions ---
 def extract_product_id_from_sn(sn):
@@ -778,6 +873,24 @@ with tab2:
 # --- Shopee Tab ---
 with tab3:
     st.header("Shopee Data Processing")
+    st.markdown("Upload three different Excel files for processing: Media, Shipping, and Sales.")
+    
+    # Google Drive configuration
+    GOOGLE_DRIVE_FOLDER_ID = "1kfTp67K0xaHfLhbYJe_88GPSAid7A59I"
+    FILE_MAPPING = {
+        "media": {
+            "name": "mass_update_media_info.xlsx",
+            "id": "131TbApuNtVbw6cIqwNLsD3McWOEHA-Hz"
+        },
+        "shipping": {
+            "name": "mass_update_shipping_info.xlsx",
+            "id": "1bAebllOT1uj0mvv4_S1UBthFMO48U63w"
+        },
+        "sales": {
+            "name": "mass_update_sales_info.xlsx",
+            "id": "1f8T17KsG1dwAiFfH0Gek-go6X-ra3aTA"
+        }
+    }
     
     # Create three columns for upload buttons
     col_media, col_shipping, col_sales = st.columns(3)
@@ -802,15 +915,92 @@ with tab3:
     
     st.divider()
     
-    # Process button
+    # Display file status and last modified date
+    st.subheader("📊 File Status")
+    service = get_google_drive_service()
+    
+    status_cols = st.columns(3)
+    
+    with status_cols[0]:
+        st.markdown("**📸 Media File**")
+        if service:
+            status, modified_date = get_file_status_and_date(service, FILE_MAPPING["media"]["id"])
+            if status == 'valid':
+                st.success(f"✅ Valid")
+                st.caption(f"Last modified: {modified_date}")
+            else:
+                st.error(f"❌ Error")
+        else:
+            st.warning("Unable to check status")
+    
+    with status_cols[1]:
+        st.markdown("**🚚 Shipping File**")
+        if service:
+            status, modified_date = get_file_status_and_date(service, FILE_MAPPING["shipping"]["id"])
+            if status == 'valid':
+                st.success(f"✅ Valid")
+                st.caption(f"Last modified: {modified_date}")
+            else:
+                st.error(f"❌ Error")
+        else:
+            st.warning("Unable to check status")
+    
+    with status_cols[2]:
+        st.markdown("**💰 Sales File**")
+        if service:
+            status, modified_date = get_file_status_and_date(service, FILE_MAPPING["sales"]["id"])
+            if status == 'valid':
+                st.success(f"✅ Valid")
+                st.caption(f"Last modified: {modified_date}")
+            else:
+                st.error(f"❌ Error")
+        else:
+            st.warning("Unable to check status")
+    
+    st.divider()
+    
+    # Process and upload button
     if uploaded_file_media is not None or uploaded_file_shipping is not None or uploaded_file_sales is not None:
-        if st.button("🚀 Process Shopee Files", key="shopee_process"):
-            st.info("Processing files... (Framework ready for implementation)")
-            
-            # Placeholder for processing logic
-            if uploaded_file_media is not None:
-                st.info("📸 Media file processing logic to be implemented")
-            if uploaded_file_shipping is not None:
-                st.info("🚚 Shipping file processing logic to be implemented")
-            if uploaded_file_sales is not None:
-                st.info("💰 Sales file processing logic to be implemented")
+        if st.button("🚀 Upload to Google Drive", key="shopee_upload"):
+            with st.spinner("Uploading files to Google Drive..."):
+                service = get_google_drive_service()
+                
+                if service is None:
+                    st.error("❌ Failed to connect to Google Drive. Please check credentials.")
+                else:
+                    upload_results = {}
+                    
+                    # Upload Media file
+                    if uploaded_file_media is not None:
+                        file_content = io.BytesIO(uploaded_file_media.getvalue())
+                        success, file_id, modified_time = update_file_by_id(service, FILE_MAPPING["media"]["id"], file_content)
+                        upload_results["Media"] = success
+                        if success:
+                            st.success(f"✅ Media file uploaded successfully")
+                        else:
+                            st.error("❌ Failed to upload Media file")
+                    
+                    # Upload Shipping file
+                    if uploaded_file_shipping is not None:
+                        file_content = io.BytesIO(uploaded_file_shipping.getvalue())
+                        success, file_id, modified_time = update_file_by_id(service, FILE_MAPPING["shipping"]["id"], file_content)
+                        upload_results["Shipping"] = success
+                        if success:
+                            st.success(f"✅ Shipping file uploaded successfully")
+                        else:
+                            st.error("❌ Failed to upload Shipping file")
+                    
+                    # Upload Sales file
+                    if uploaded_file_sales is not None:
+                        file_content = io.BytesIO(uploaded_file_sales.getvalue())
+                        success, file_id, modified_time = update_file_by_id(service, FILE_MAPPING["sales"]["id"], file_content)
+                        upload_results["Sales"] = success
+                        if success:
+                            st.success(f"✅ Sales file uploaded successfully")
+                        else:
+                            st.error("❌ Failed to upload Sales file")
+                    
+                    # Summary
+                    st.divider()
+                    successful = sum(1 for v in upload_results.values() if v)
+                    st.info(f"📊 Upload Summary: {successful}/{len(upload_results)} files uploaded successfully")
