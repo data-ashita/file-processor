@@ -3,6 +3,7 @@ import streamlit as st
 import pandas as pd
 import io
 import re
+import time
 from supabase import create_client, Client
 
 # --- Supabase Connection Configuration ---
@@ -128,24 +129,37 @@ def process_bigseller_file(uploaded_file):
 
 # --- Helper Function to Get Latest Stock Update Date ---
 @st.cache_data(ttl=300)
-def get_latest_stock_update_date():
-    """Fetch the latest stock update date from Supabase"""
+def get_latest_stock_update_date(max_retries=3, initial_delay=1):
+    """Fetch the latest stock update date from Supabase with retry logic"""
     if supabase is None:
         return None
     
-    try:
-        # Fetch records where date is not null, ordered by date descending
-        response = supabase.table('server').select('date').not_.is_('date', 'null').order('date', desc=True).limit(1).execute()
-        if response.data and len(response.data) > 0:
-            latest_date_str = response.data[0].get('date')
-            if latest_date_str:
-                try:
-                    latest_date = pd.to_datetime(latest_date_str)
-                    return latest_date.strftime('%Y-%m-%d %H:%M:%S')
-                except Exception:
-                    return str(latest_date_str)
-    except Exception as e:
-        pass
+    retry_count = 0
+    delay = initial_delay
+    
+    while retry_count < max_retries:
+        try:
+            # Fetch records where date is not null, ordered by date descending
+            response = supabase.table('server').select('date').not_.is_('date', 'null').order('date', desc=True).limit(1).execute()
+            if response.data and len(response.data) > 0:
+                latest_date_str = response.data[0].get('date')
+                if latest_date_str:
+                    try:
+                        latest_date = pd.to_datetime(latest_date_str)
+                        return latest_date.strftime('%Y-%m-%d %H:%M:%S')
+                    except Exception:
+                        return str(latest_date_str)
+            # If no data but no error, return None
+            return None
+        except Exception as e:
+            retry_count += 1
+            if retry_count < max_retries:
+                # Exponential backoff: wait before retrying
+                time.sleep(delay)
+                delay *= 2  # Double the delay for next retry
+            else:
+                # All retries exhausted
+                pass
     
     return None
 
@@ -537,7 +551,7 @@ def process_po_file(uploaded_file):
 st.set_page_config(page_title="Automated File Processor", layout="wide")
 st.title("📈 Automated File Processor")
 st.caption("Upload an Excel file, and the system will process it and generate a result file for you to download.")
-tab1, tab2 = st.tabs(["BigSeller", "PO"])
+tab1, tab2, tab3 = st.tabs(["BigSeller", "PO", "Shopee"])
 with tab1:
     st.header("BigSeller Data Processing")
     latest_date = get_latest_stock_update_date()
@@ -607,13 +621,9 @@ with tab2:
                         st.metric("Complete Records", len(complete_df))
                         if len(complete_df) > 0:
                             output_complete = complete_df[['Stock Code', 'IMEI', 'DO Number', 'Medium Box Code']].copy()
-                            # Convert to TXT format
-                            output_text = output_complete.to_string(index=False)
-                            output_buffer = output_text.encode('utf-8')
-                            st.download_button(label="📥 Download Complete", data=output_buffer, 
-                                            file_name="output_po_complete.txt", 
-                                            mime="text/plain", 
-                                            key="po_complete_download")
+                            # Convert to TXT format (no headers, tab-delimited like Excel copy-paste)
+                            txt_content = output_complete.to_csv(sep='	', index=False, header=False)
+                            st.download_button(label="📥 Download Complete", data=txt_content, file_name="output_po_complete.txt", mime="text/plain", key="po_complete_download")
                     with col2:
                         st.metric("Incomplete Stock Code", len(incomplete_stock_df))
                         if len(incomplete_stock_df) > 0:
@@ -699,7 +709,7 @@ with tab2:
                             
                             stock_code_data = [stock_code_complete, stock_code_incomplete]
                             stock_code_labels = [f"With Stock Code ({stock_code_complete})", f"Missing Stock Code ({stock_code_incomplete})"]
-                            stock_code_colors = ['#A2CB8B', '#FF7070']
+                            stock_code_colors = ['#2ecc71', '#e74c3c']
                             
                             fig_stock = go.Figure(data=[go.Pie(
                                 labels=stock_code_labels,
@@ -748,7 +758,7 @@ with tab2:
                                 f"Case 4: Skip ({case4_count})",
                                 f"Case 5: Error ({case5_count})"
                             ]
-                            imei_colors = ['#7AAACE', '#FFCE99', '#C9BEFF', '#ACBAC4', '#FF7070']
+                            imei_colors = ['#3498db', '#f39c12', '#9b59b6', '#95a5a6', '#e74c3c']
                             
                             fig_imei = go.Figure(data=[go.Pie(
                                 labels=imei_labels,
@@ -762,3 +772,46 @@ with tab2:
                                 showlegend=True
                             )
                             st.plotly_chart(fig_imei, use_container_width=True)
+                    
+
+
+# --- Shopee Tab ---
+with tab3:
+    st.header("Shopee Data Processing")
+    st.markdown("Upload three different Excel files for processing: Media, Shipping, and Sales.")
+    
+    # Create three columns for upload buttons
+    col_media, col_shipping, col_sales = st.columns(3)
+    
+    with col_media:
+        st.subheader("📸 Media File")
+        uploaded_file_media = st.file_uploader("Upload Media Excel file", type=["xlsx", "xls"], key="shopee_media_uploader")
+        if uploaded_file_media is not None:
+            st.success(f"✓ Media file uploaded: {uploaded_file_media.name}")
+    
+    with col_shipping:
+        st.subheader("🚚 Shipping File")
+        uploaded_file_shipping = st.file_uploader("Upload Shipping Excel file", type=["xlsx", "xls"], key="shopee_shipping_uploader")
+        if uploaded_file_shipping is not None:
+            st.success(f"✓ Shipping file uploaded: {uploaded_file_shipping.name}")
+    
+    with col_sales:
+        st.subheader("💰 Sales File")
+        uploaded_file_sales = st.file_uploader("Upload Sales Excel file", type=["xlsx", "xls"], key="shopee_sales_uploader")
+        if uploaded_file_sales is not None:
+            st.success(f"✓ Sales file uploaded: {uploaded_file_sales.name}")
+    
+    st.divider()
+    
+    # Process button
+    if uploaded_file_media is not None or uploaded_file_shipping is not None or uploaded_file_sales is not None:
+        if st.button("🚀 Process Shopee Files", key="shopee_process"):
+            st.info("Processing files... (Framework ready for implementation)")
+            
+            # Placeholder for processing logic
+            if uploaded_file_media is not None:
+                st.info("📸 Media file processing logic to be implemented")
+            if uploaded_file_shipping is not None:
+                st.info("🚚 Shipping file processing logic to be implemented")
+            if uploaded_file_sales is not None:
+                st.info("💰 Sales file processing logic to be implemented")
