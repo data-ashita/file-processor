@@ -607,10 +607,13 @@ with tab2:
                         st.metric("Complete Records", len(complete_df))
                         if len(complete_df) > 0:
                             output_complete = complete_df[['Stock Code', 'IMEI', 'DO Number', 'Medium Box Code']].copy()
-                            output_buffer = io.BytesIO()
-                            with pd.ExcelWriter(output_buffer, engine='openpyxl') as writer:
-                                output_complete.to_excel(writer, index=False, sheet_name='Complete')
-                            st.download_button(label="📥 Download Complete", data=output_buffer.getvalue(), file_name="output_po_complete.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="po_complete_download")
+                            # Convert to TXT format
+                            output_text = output_complete.to_string(index=False)
+                            output_buffer = output_text.encode('utf-8')
+                            st.download_button(label="📥 Download Complete", data=output_buffer, 
+                                            file_name="output_po_complete.txt", 
+                                            mime="text/plain", 
+                                            key="po_complete_download")
                     with col2:
                         st.metric("Incomplete Stock Code", len(incomplete_stock_df))
                         if len(incomplete_stock_df) > 0:
