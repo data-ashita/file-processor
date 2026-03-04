@@ -778,7 +778,6 @@ with tab2:
 # --- Shopee Tab ---
 with tab3:
     st.header("Shopee Data Processing")
-    st.markdown("Upload three different Excel files for processing: Media, Shipping, and Sales.")
     
     # Create three columns for upload buttons
     col_media, col_shipping, col_sales = st.columns(3)
