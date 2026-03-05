@@ -890,7 +890,6 @@ with tab2:
 # --- Shopee Tab ---
 with tab3:
     st.header("Shopee Data Processing")
-    st.markdown("Upload three different Excel files for processing: Media, Shipping, and Sales.")
     
     # Google Drive configuration
     GOOGLE_DRIVE_FOLDER_ID = "1kfTp67K0xaHfLhbYJe_88GPSAid7A59I"
