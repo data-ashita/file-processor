@@ -189,7 +189,7 @@ def get_google_drive_service():
     return None
 
 def get_file_status_and_date(service, file_id):
-    """Get file status and last modified date from Google Drive"""
+    """Get file status and last modified date from Google Drive in GMT+8"""
     try:
         file = service.files().get(fileId=file_id, fields='id, name, modifiedTime, trashed').execute()
         
@@ -198,10 +198,15 @@ def get_file_status_and_date(service, file_id):
         
         modified_time = file.get('modifiedTime')
         if modified_time:
-            # Convert ISO format to readable format
+            # Convert ISO format to GMT+8
             from datetime import datetime
             dt = datetime.fromisoformat(modified_time.replace('Z', '+00:00'))
-            return 'valid', dt.strftime('%Y-%m-%d %H:%M:%S')
+            
+            # Convert to GMT+8
+            gmt8 = pytz.timezone('Asia/Shanghai')
+            dt_gmt8 = dt.astimezone(gmt8)
+            
+            return 'valid', dt_gmt8.strftime('%Y-%m-%d %H:%M:%S')
         
         return 'valid', 'Unknown'
     except Exception as e:
@@ -237,7 +242,7 @@ def get_google_drive_service():
     return None
 
 def get_file_status_and_date(service, file_id):
-    """Get file status and last modified date from Google Drive"""
+    """Get file status and last modified date from Google Drive in GMT+8"""
     try:
         file = service.files().get(fileId=file_id, fields='id, name, modifiedTime, trashed').execute()
         
@@ -246,10 +251,15 @@ def get_file_status_and_date(service, file_id):
         
         modified_time = file.get('modifiedTime')
         if modified_time:
-            # Convert ISO format to readable format
+            # Convert ISO format to GMT+8
             from datetime import datetime
             dt = datetime.fromisoformat(modified_time.replace('Z', '+00:00'))
-            return 'valid', dt.strftime('%Y-%m-%d %H:%M:%S')
+            
+            # Convert to GMT+8
+            gmt8 = pytz.timezone('Asia/Shanghai')
+            dt_gmt8 = dt.astimezone(gmt8)
+            
+            return 'valid', dt_gmt8.strftime('%Y-%m-%d %H:%M:%S')
         
         return 'valid', 'Unknown'
     except Exception as e:
