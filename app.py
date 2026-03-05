@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import streamlit as st
+import pytz
 import pandas as pd
 import io
 import re
@@ -895,74 +896,75 @@ with tab3:
         "sales": {
             "name": "mass_update_sales_info.xlsx",
             "id": "1f8T17KsG1dwAiFfH0Gek-go6X-ra3aTA"
+        },
+        "price": {
+            "name": "iot_price_structure.xlsx",
+            "id": "18xG8_m3IiYe4M4HHrN4I0QwhE4rkUp65"
         }
     }
     
-    # Create three columns for upload buttons
-    col_media, col_shipping, col_sales = st.columns(3)
+    # Get Google Drive service for status checking
+    service = get_google_drive_service()
+    
+    # Create three columns for upload buttons with status
+    col_media, col_shipping, col_sales, col_price = st.columns(4)
     
     with col_media:
         st.subheader("📸 Media File")
         uploaded_file_media = st.file_uploader("Upload Media Excel file", type=["xlsx", "xls"], key="shopee_media_uploader")
         if uploaded_file_media is not None:
             st.success(f"✓ Media file uploaded: {uploaded_file_media.name}")
+        
+        # Display status and date
+        if service:
+            status, modified_date = get_file_status_and_date(service, FILE_MAPPING["media"]["id"])
+            if status == 'valid':
+                st.caption(f"✅ Valid | {modified_date}")
+            else:
+                st.caption(f"❌ Error")
     
     with col_shipping:
         st.subheader("🚚 Shipping File")
         uploaded_file_shipping = st.file_uploader("Upload Shipping Excel file", type=["xlsx", "xls"], key="shopee_shipping_uploader")
         if uploaded_file_shipping is not None:
             st.success(f"✓ Shipping file uploaded: {uploaded_file_shipping.name}")
+        
+        # Display status and date
+        if service:
+            status, modified_date = get_file_status_and_date(service, FILE_MAPPING["shipping"]["id"])
+            if status == 'valid':
+                st.caption(f"✅ Valid | {modified_date}")
+            else:
+                st.caption(f"❌ Error")
     
     with col_sales:
         st.subheader("💰 Sales File")
         uploaded_file_sales = st.file_uploader("Upload Sales Excel file", type=["xlsx", "xls"], key="shopee_sales_uploader")
         if uploaded_file_sales is not None:
             st.success(f"✓ Sales file uploaded: {uploaded_file_sales.name}")
-    
-    st.divider()
-    
-    # Display file status and last modified date
-    st.subheader("📊 File Status")
-    service = get_google_drive_service()
-    
-    status_cols = st.columns(3)
-    
-    with status_cols[0]:
-        st.markdown("**📸 Media File**")
-        if service:
-            status, modified_date = get_file_status_and_date(service, FILE_MAPPING["media"]["id"])
-            if status == 'valid':
-                st.success(f"✅ Valid")
-                st.caption(f"Last modified: {modified_date}")
-            else:
-                st.error(f"❌ Error")
-        else:
-            st.warning("Unable to check status")
-    
-    with status_cols[1]:
-        st.markdown("**🚚 Shipping File**")
-        if service:
-            status, modified_date = get_file_status_and_date(service, FILE_MAPPING["shipping"]["id"])
-            if status == 'valid':
-                st.success(f"✅ Valid")
-                st.caption(f"Last modified: {modified_date}")
-            else:
-                st.error(f"❌ Error")
-        else:
-            st.warning("Unable to check status")
-    
-    with status_cols[2]:
-        st.markdown("**💰 Sales File**")
+        
+        # Display status and date
         if service:
             status, modified_date = get_file_status_and_date(service, FILE_MAPPING["sales"]["id"])
             if status == 'valid':
-                st.success(f"✅ Valid")
-                st.caption(f"Last modified: {modified_date}")
+                st.caption(f"✅ Valid | {modified_date}")
             else:
-                st.error(f"❌ Error")
-        else:
-            st.warning("Unable to check status")
+                st.caption(f"❌ Error")
     
+    
+    with col_price:
+        st.subheader("💰 Price File")
+        uploaded_file_price = st.file_uploader("Upload Price Excel file", type=["xlsx", "xls"], key="shopee_price_uploader")
+        if uploaded_file_price is not None:
+            st.success(f"✓ Price file uploaded: {uploaded_file_price.name}")
+        
+        # Display status and date
+        if service:
+            status, modified_date = get_file_status_and_date(service, FILE_MAPPING["price"]["id"])
+            if status == 'valid':
+                st.caption(f"✅ Valid | {modified_date}")
+            else:
+                st.caption(f"❌ Error")
     st.divider()
     
     # Process and upload button
