@@ -680,16 +680,63 @@ with tab1:
                     create_download_button(df=result_df_bs, filename="output_bigseller.xlsx", button_key="bigseller_downloader")
 with tab2:
     st.header("PO Data Processing")
-    uploaded_file_po = st.file_uploader("Please upload the PO Excel file", type=["xlsx", "xls"], key="po_uploader")
-    if uploaded_file_po is not None:
-        if st.button("🚀 Process PO File", key="po_process"):
-            with st.spinner('Processing in progress, please wait...'):
-                result_df, error_file_data = process_po_file(uploaded_file_po)
-                if result_df is not None:
-                    # Extract error file data
-                    error_rows = error_file_data.get('error_rows', [])
-                    scan_needed = error_file_data.get('scan_needed', [])
-                    adjustment_needed = error_file_data.get('adjustment_needed', [])
+    
+    # 启用多文件上传
+    uploaded_files_po = st.file_uploader(
+        "Please upload PO Excel files (you can select multiple files)", 
+        type=["xlsx", "xls"], 
+        key="po_uploader",
+        accept_multiple_files=True  # ← 关键：启用多文件上传
+    )
+    
+    if uploaded_files_po:
+        st.info(f"📁 {len(uploaded_files_po)} file(s) selected for processing")
+        
+        if st.button("🚀 Process PO Files", key="po_process"):
+            with st.spinner('Processing files in progress, please wait...'):
+                all_results = []
+                all_error_data = {
+                    'error_rows': [],
+                    'scan_needed': [],
+                    'adjustment_needed': [],
+                    'manual_input_needed': {}
+                }
+                
+                # 创建进度条
+                progress_bar = st.progress(0)
+                
+                # 逐个处理每个文件
+                for file_idx, uploaded_file in enumerate(uploaded_files_po, 1):
+                    st.info(f"⏳ Processing file {file_idx}/{len(uploaded_files_po)}: {uploaded_file.name}")
+                    
+                    result_df, error_file_data = process_po_file(uploaded_file)
+                    
+                    if result_df is not None:
+                        # 添加文件名列以区分来源
+                        result_df['Source File'] = uploaded_file.name
+                        all_results.append(result_df)
+                        
+                        # 合并错误数据
+                        all_error_data['error_rows'].extend(error_file_data.get('error_rows', []))
+                        all_error_data['scan_needed'].extend(error_file_data.get('scan_needed', []))
+                        all_error_data['adjustment_needed'].extend(error_file_data.get('adjustment_needed', []))
+                        all_error_data['manual_input_needed'].update(error_file_data.get('manual_input_needed', {}))
+                        
+                        st.success(f"✅ File {file_idx} processed successfully")
+                    else:
+                        st.error(f"❌ File {file_idx} processing failed")
+                    
+                    # 更新进度条
+                    progress_bar.progress(file_idx / len(uploaded_files_po))
+                
+                st.success(f"✅ All {len(uploaded_files_po)} files processed!")
+                
+                # 合并所有结果
+                if all_results:
+                    result_df = pd.concat(all_results, ignore_index=True)
+                    error_file_data = all_error_data
+                    
+                    # 手动输入处理
                     manual_input_dict = error_file_data.get('manual_input_needed', {})
                     
                     if manual_input_dict:
@@ -711,60 +758,89 @@ with tab2:
                                         result_df.loc[result_df['Goods name'] == goods_name, 'Manual Input Required'] = False
                                         confirmed_count += 1
                                 st.success(f"✓ {confirmed_count} items confirmed and saved to database.")
+                    
                     st.divider()
                     st.subheader("Download Results")
-                    # Complete: has Stock Code AND IMEI is not ERROR
+                    
+                    # 分类结果
                     complete_df = result_df[
                         (result_df['Stock Code'].notna()) & 
                         (~result_df['IMEI Status'].str.contains('ERROR', na=False))
                     ].copy()
-                    # Incomplete Stock Code: missing Stock Code
+                    
                     incomplete_stock_df = result_df[
                         result_df['Stock Code'].isna()
                     ].copy()
-                    # Incomplete IMEI: has Stock Code but IMEI is ERROR
+                    
                     incomplete_imei_df = result_df[
                         (result_df['Stock Code'].notna()) & 
                         (result_df['IMEI Status'].str.contains('ERROR', na=False))
                     ].copy()
                     
                     col1, col2, col3, col4 = st.columns(4)
+                    
+                    # Complete 下载按钮
                     with col1:
                         st.metric("Complete Records", len(complete_df))
                         if len(complete_df) > 0:
-                            output_complete = complete_df[['Stock Code', 'IMEI', 'DO Number', 'Medium Box Code']].copy()
-                            # Convert to TXT format (no headers, tab-delimited like Excel copy-paste)
-                            txt_content = output_complete.to_csv(sep='	', index=False, header=False)
-                            st.download_button(label="📥 Download Complete", data=txt_content, file_name="output_po_complete.txt", mime="text/plain", key="po_complete_download")
+                            output_complete = complete_df[['Source File', 'Stock Code', 'IMEI', 'DO Number', 'Medium Box Code']].copy()
+                            # 转换为 TXT 格式
+                            txt_content = output_complete.to_csv(sep='\t', index=False, header=False)
+                            st.download_button(
+                                label="📥 Download Complete", 
+                                data=txt_content, 
+                                file_name="output_po_complete.txt", 
+                                mime="text/plain", 
+                                key="po_complete_download"
+                            )
+                    
+                    # Incomplete Stock Code 下载按钮
                     with col2:
                         st.metric("Incomplete Stock Code", len(incomplete_stock_df))
                         if len(incomplete_stock_df) > 0:
-                            output_incomplete_stock = incomplete_stock_df[['Goods name', 'DO Number', 'Medium Box Code', 'SN', 'Processing Status']].copy()
+                            output_incomplete_stock = incomplete_stock_df[['Source File', 'Goods name', 'DO Number', 'Medium Box Code', 'SN', 'Processing Status']].copy()
                             output_buffer = io.BytesIO()
                             with pd.ExcelWriter(output_buffer, engine='openpyxl') as writer:
                                 output_incomplete_stock.to_excel(writer, index=False, sheet_name='Missing Stock Code')
-                            st.download_button(label="📥 Download Stock Code", data=output_buffer.getvalue(), file_name="output_po_incomplete_stock.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="po_incomplete_stock_download")
+                            st.download_button(
+                                label="📥 Download Stock Code", 
+                                data=output_buffer.getvalue(), 
+                                file_name="output_po_incomplete_stock.xlsx", 
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", 
+                                key="po_incomplete_stock_download"
+                            )
+                    
+                    # Incomplete IMEI 下载按钮
                     with col3:
                         st.metric("Incomplete IMEI", len(incomplete_imei_df))
                         if len(incomplete_imei_df) > 0:
-                            output_incomplete_imei = incomplete_imei_df[['Stock Code', 'Goods name', 'IMEI', 'DO Number', 'IMEI Status']].copy()
+                            output_incomplete_imei = incomplete_imei_df[['Source File', 'Stock Code', 'Goods name', 'IMEI', 'DO Number', 'IMEI Status']].copy()
                             output_buffer = io.BytesIO()
                             with pd.ExcelWriter(output_buffer, engine='openpyxl') as writer:
                                 output_incomplete_imei.to_excel(writer, index=False, sheet_name='IMEI Issues')
-                            st.download_button(label="📥 Download IMEI Issues", data=output_buffer.getvalue(), file_name="output_po_incomplete_imei.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="po_incomplete_imei_download")
+                            st.download_button(
+                                label="📥 Download IMEI Issues", 
+                                data=output_buffer.getvalue(), 
+                                file_name="output_po_incomplete_imei.xlsx", 
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", 
+                                key="po_incomplete_imei_download"
+                            )
+                    
+                    # Error/Action Items 下载按钮
                     with col4:
+                        error_rows = error_file_data.get('error_rows', [])
+                        scan_needed = error_file_data.get('scan_needed', [])
+                        adjustment_needed = error_file_data.get('adjustment_needed', [])
                         error_count = len(error_rows) + len(scan_needed) + len(adjustment_needed)
+                        
                         st.metric("Error/Action Items", error_count)
                         if error_count > 0:
-                            # Create error file
                             error_sheet_data = []
                             
-                            # Add error rows
                             if error_rows:
                                 error_df = result_df.iloc[error_rows].copy()
                                 error_sheet_data.append(("Error Rows", error_df))
                             
-                            # Add scan needed list
                             if scan_needed:
                                 scan_df = pd.DataFrame({
                                     'Goods Name': scan_needed,
@@ -772,7 +848,6 @@ with tab2:
                                 })
                                 error_sheet_data.append(("Scan Needed", scan_df))
                             
-                            # Add adjustment needed list
                             if adjustment_needed:
                                 adjust_df = pd.DataFrame({
                                     'Goods Name': adjustment_needed,
@@ -780,7 +855,6 @@ with tab2:
                                 })
                                 error_sheet_data.append(("Adjustment Needed", adjust_df))
                             
-                            # Add manual input needed list
                             if manual_input_dict:
                                 manual_df = pd.DataFrame({
                                     'Goods Name': list(manual_input_dict.keys()),
@@ -788,19 +862,23 @@ with tab2:
                                 })
                                 error_sheet_data.append(("Manual Input Needed", manual_df))
                             
-                            # Create Excel file with multiple sheets
                             output_error = io.BytesIO()
                             with pd.ExcelWriter(output_error, engine='openpyxl') as writer:
                                 for sheet_name, df in error_sheet_data:
-                                    df.to_excel(writer, index=False, sheet_name=sheet_name[:31])  # Excel sheet name limit is 31 chars
+                                    df.to_excel(writer, index=False, sheet_name=sheet_name[:31])
                             
-                            st.download_button(label="📥 Download Error/Action File", data=output_error.getvalue(), file_name="output_po_errors.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="po_error_download")
+                            st.download_button(
+                                label="📥 Download Error/Action File", 
+                                data=output_error.getvalue(), 
+                                file_name="output_po_errors.xlsx", 
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", 
+                                key="po_error_download"
+                            )
                     
-                    # --- Statistics Section ---
+                    # --- 统计信息部分 ---
                     st.divider()
                     st.subheader("📊 Processing Statistics")
                     
-                    # Left-Right Layout with Spacing
                     left_col, spacer_col, right_col = st.columns([2, 0.5, 2])
                     
                     # LEFT COLUMN: Stock Code Distribution
@@ -815,7 +893,6 @@ with tab2:
                         with col_stats2:
                             st.metric("❌ Missing Stock Code", stock_code_incomplete)
                         
-                        # Stock Code Pie Chart
                         if stock_code_complete > 0 or stock_code_incomplete > 0:
                             import plotly.graph_objects as go
                             
@@ -835,57 +912,6 @@ with tab2:
                                 showlegend=True
                             )
                             st.plotly_chart(fig_stock, use_container_width=True)
-                    
-                    # RIGHT COLUMN: IMEI Statistics by Case
-                    with right_col:
-                        st.markdown("#### IMEI Processing by Case")
-                        
-                        # Count each case
-                        case1_count = len(result_df[result_df['IMEI Status'] == 'Case 1: Used Excel IMEI'])
-                        case2_count = len(result_df[result_df['IMEI Status'] == 'Case 2: Needs manual scan'])
-                        case3_count = len(result_df[result_df['IMEI Status'] == 'Case 3: Used Excel IMEI (needs adjustment)'])
-                        case4_count = len(result_df[result_df['IMEI Status'] == 'Case 4: Skipped (no IMEI needed)'])
-                        case5_count = len(result_df[result_df['IMEI Status'].str.contains('ERROR', na=False)])
-                        
-                        # All 5 cases in one row
-                        col_case1, col_case2, col_case3, col_case4, col_case5 = st.columns(5)
-                        with col_case1:
-                            st.metric("Case 1", case1_count)
-                        with col_case2:
-                            st.metric("Case 2", case2_count)
-                        with col_case3:
-                            st.metric("Case 3", case3_count)
-                        with col_case4:
-                            st.metric("Case 4", case4_count)
-                        with col_case5:
-                            st.metric("Case 5", case5_count)
-                        
-                        # IMEI Pie Chart
-                        if case1_count > 0 or case2_count > 0 or case3_count > 0 or case4_count > 0 or case5_count > 0:
-                            imei_data = [case1_count, case2_count, case3_count, case4_count, case5_count]
-                            imei_labels = [
-                                f"Case 1: Used ({case1_count})",
-                                f"Case 2: Scan ({case2_count})",
-                                f"Case 3: Adjust ({case3_count})",
-                                f"Case 4: Skip ({case4_count})",
-                                f"Case 5: Error ({case5_count})"
-                            ]
-                            imei_colors = ['#3498db', '#f39c12', '#9b59b6', '#95a5a6', '#e74c3c']
-                            
-                            fig_imei = go.Figure(data=[go.Pie(
-                                labels=imei_labels,
-                                values=imei_data,
-                                marker=dict(colors=imei_colors),
-                                hoverinfo='label+value+percent'
-                            )])
-                            fig_imei.update_layout(
-                                title="IMEI Distribution",
-                                height=400,
-                                showlegend=True
-                            )
-                            st.plotly_chart(fig_imei, use_container_width=True)
-                    
-
 
 # --- Shopee Tab ---
 with tab3:
