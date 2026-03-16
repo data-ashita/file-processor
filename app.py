@@ -976,8 +976,10 @@ with tab3:
                 st.caption(f"❌ Error")
     st.divider()
     
+    # ========== 修复部分开始：添加 Price File 到上传条件 ==========
     # Process and upload button
-    if uploaded_file_media is not None or uploaded_file_shipping is not None or uploaded_file_sales is not None:
+    # 修改：添加 or uploaded_file_price is not None
+    if uploaded_file_media is not None or uploaded_file_shipping is not None or uploaded_file_sales is not None or uploaded_file_price is not None:
         if st.button("🚀 Upload to Google Drive", key="shopee_upload"):
             with st.spinner("Uploading files to Google Drive..."):
                 service = get_google_drive_service()
@@ -1016,6 +1018,18 @@ with tab3:
                             st.success(f"✅ Sales file uploaded successfully")
                         else:
                             st.error("❌ Failed to upload Sales file")
+                    
+                    # ========== 修复部分：添加 Price File 上传逻辑 ==========
+                    # Upload Price file
+                    if uploaded_file_price is not None:
+                        file_content = io.BytesIO(uploaded_file_price.getvalue())
+                        success, file_id, modified_time = update_file_by_id(service, FILE_MAPPING["price"]["id"], file_content)
+                        upload_results["Price"] = success
+                        if success:
+                            st.success(f"✅ Price file uploaded successfully")
+                        else:
+                            st.error("❌ Failed to upload Price file")
+                    # ========== 修复部分结束 ==========
                     
                     # Summary
                     st.divider()
