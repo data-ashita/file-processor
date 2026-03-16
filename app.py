@@ -686,7 +686,7 @@ with tab2:
         "Please upload PO Excel files (you can select multiple files)", 
         type=["xlsx", "xls"], 
         key="po_uploader",
-        accept_multiple_files=True  # ← 关键：启用多文件上传
+        accept_multiple_files=True
     )
     
     if uploaded_files_po:
@@ -695,14 +695,8 @@ with tab2:
         if st.button("🚀 Process PO Files", key="po_process"):
             with st.spinner('Processing files in progress, please wait...'):
                 all_results = []
-                all_error_data = {
-                    'error_rows': [],
-                    'scan_needed': [],
-                    'adjustment_needed': [],
-                    'manual_input_needed': {}
-                }
+                all_error_data_list = []
                 
-                # 创建进度条
                 progress_bar = st.progress(0)
                 
                 # 逐个处理每个文件
@@ -712,168 +706,140 @@ with tab2:
                     result_df, error_file_data = process_po_file(uploaded_file)
                     
                     if result_df is not None:
-                        # 添加文件名列以区分来源
-                        result_df['Source File'] = uploaded_file.name
                         all_results.append(result_df)
-                        
-                        # 合并错误数据
-                        all_error_data['error_rows'].extend(error_file_data.get('error_rows', []))
-                        all_error_data['scan_needed'].extend(error_file_data.get('scan_needed', []))
-                        all_error_data['adjustment_needed'].extend(error_file_data.get('adjustment_needed', []))
-                        all_error_data['manual_input_needed'].update(error_file_data.get('manual_input_needed', {}))
-                        
+                        all_error_data_list.append({
+                            'file_name': uploaded_file.name,
+                            'result_df': result_df,
+                            'error_data': error_file_data
+                        })
                         st.success(f"✅ File {file_idx} processed successfully")
                     else:
                         st.error(f"❌ File {file_idx} processing failed")
                     
-                    # 更新进度条
                     progress_bar.progress(file_idx / len(uploaded_files_po))
                 
                 st.success(f"✅ All {len(uploaded_files_po)} files processed!")
                 
-                # 合并所有结果
+                # ========== 关键改动：为每个文件分别输出 ==========
                 if all_results:
-                    result_df = pd.concat(all_results, ignore_index=True)
-                    error_file_data = all_error_data
-                    
-                    # 手动输入处理
-                    manual_input_dict = error_file_data.get('manual_input_needed', {})
-                    
-                    if manual_input_dict:
-                        st.warning(f"Warning: {len(manual_input_dict)} goods require manual Stock Code input.")
-                        with st.expander(f"📝 Enter Stock Codes ({len(manual_input_dict)} items)", expanded=True):
-                            manual_stock_codes = {}
-                            for idx, goods_name in enumerate(manual_input_dict.keys(), 1):
-                                col1, col2 = st.columns([3, 1])
-                                with col1:
-                                    st.text(f"{idx}. {goods_name}")
-                                with col2:
-                                    manual_stock_codes[goods_name] = st.text_input("", key=f"manual_{goods_name}", placeholder="Enter code")
-                            if st.button("✅ Confirm Manual Inputs", key="confirm_manual"):
-                                confirmed_count = 0
-                                for goods_name, stock_code in manual_stock_codes.items():
-                                    if stock_code.strip():
-                                        add_to_stock_imei_mapping(goods_name, stock_code)
-                                        result_df.loc[result_df['Goods name'] == goods_name, 'Stock Code'] = stock_code
-                                        result_df.loc[result_df['Goods name'] == goods_name, 'Manual Input Required'] = False
-                                        confirmed_count += 1
-                                st.success(f"✓ {confirmed_count} items confirmed and saved to database.")
-                    
                     st.divider()
-                    st.subheader("Download Results")
+                    st.subheader("📥 Download Results by File")
                     
-                    # 分类结果
-                    complete_df = result_df[
-                        (result_df['Stock Code'].notna()) & 
-                        (~result_df['IMEI Status'].str.contains('ERROR', na=False))
-                    ].copy()
-                    
-                    incomplete_stock_df = result_df[
-                        result_df['Stock Code'].isna()
-                    ].copy()
-                    
-                    incomplete_imei_df = result_df[
-                        (result_df['Stock Code'].notna()) & 
-                        (result_df['IMEI Status'].str.contains('ERROR', na=False))
-                    ].copy()
-                    
-                    col1, col2, col3, col4 = st.columns(4)
-                    
-                    # Complete 下载按钮
-                    with col1:
-                        st.metric("Complete Records", len(complete_df))
-                        if len(complete_df) > 0:
-                            output_complete = complete_df[['Source File', 'Stock Code', 'IMEI', 'DO Number', 'Medium Box Code']].copy()
-                            # 转换为 TXT 格式
-                            txt_content = output_complete.to_csv(sep='\t', index=False, header=False)
-                            st.download_button(
-                                label="📥 Download Complete", 
-                                data=txt_content, 
-                                file_name="output_po_complete.txt", 
-                                mime="text/plain", 
-                                key="po_complete_download"
-                            )
-                    
-                    # Incomplete Stock Code 下载按钮
-                    with col2:
-                        st.metric("Incomplete Stock Code", len(incomplete_stock_df))
-                        if len(incomplete_stock_df) > 0:
-                            output_incomplete_stock = incomplete_stock_df[['Source File', 'Goods name', 'DO Number', 'Medium Box Code', 'SN', 'Processing Status']].copy()
-                            output_buffer = io.BytesIO()
-                            with pd.ExcelWriter(output_buffer, engine='openpyxl') as writer:
-                                output_incomplete_stock.to_excel(writer, index=False, sheet_name='Missing Stock Code')
-                            st.download_button(
-                                label="📥 Download Stock Code", 
-                                data=output_buffer.getvalue(), 
-                                file_name="output_po_incomplete_stock.xlsx", 
-                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", 
-                                key="po_incomplete_stock_download"
-                            )
-                    
-                    # Incomplete IMEI 下载按钮
-                    with col3:
-                        st.metric("Incomplete IMEI", len(incomplete_imei_df))
-                        if len(incomplete_imei_df) > 0:
-                            output_incomplete_imei = incomplete_imei_df[['Source File', 'Stock Code', 'Goods name', 'IMEI', 'DO Number', 'IMEI Status']].copy()
-                            output_buffer = io.BytesIO()
-                            with pd.ExcelWriter(output_buffer, engine='openpyxl') as writer:
-                                output_incomplete_imei.to_excel(writer, index=False, sheet_name='IMEI Issues')
-                            st.download_button(
-                                label="📥 Download IMEI Issues", 
-                                data=output_buffer.getvalue(), 
-                                file_name="output_po_incomplete_imei.xlsx", 
-                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", 
-                                key="po_incomplete_imei_download"
-                            )
-                    
-                    # Error/Action Items 下载按钮
-                    with col4:
-                        error_rows = error_file_data.get('error_rows', [])
-                        scan_needed = error_file_data.get('scan_needed', [])
-                        adjustment_needed = error_file_data.get('adjustment_needed', [])
-                        error_count = len(error_rows) + len(scan_needed) + len(adjustment_needed)
+                    # 为每个文件创建一个下载部分
+                    for file_data in all_error_data_list:
+                        file_name = file_data['file_name']
+                        result_df = file_data['result_df']
+                        error_file_data = file_data['error_data']
                         
-                        st.metric("Error/Action Items", error_count)
-                        if error_count > 0:
-                            error_sheet_data = []
+                        # 去掉文件扩展名作为标识
+                        file_base_name = file_name.rsplit('.', 1)[0]
+                        
+                        st.subheader(f"📄 {file_name}")
+                        
+                        # 分类结果
+                        complete_df = result_df[
+                            (result_df['Stock Code'].notna()) & 
+                            (~result_df['IMEI Status'].str.contains('ERROR', na=False))
+                        ].copy()
+                        
+                        incomplete_stock_df = result_df[
+                            result_df['Stock Code'].isna()
+                        ].copy()
+                        
+                        incomplete_imei_df = result_df[
+                            (result_df['Stock Code'].notna()) & 
+                            (result_df['IMEI Status'].str.contains('ERROR', na=False))
+                        ].copy()
+                        
+                        col1, col2, col3, col4 = st.columns(4)
+                        
+                        # Complete 下载按钮
+                        with col1:
+                            st.metric("Complete Records", len(complete_df))
+                            if len(complete_df) > 0:
+                                output_complete = complete_df[['Stock Code', 'IMEI', 'DO Number', 'Medium Box Code']].copy()
+                                txt_content = output_complete.to_csv(sep='\t', index=False, header=False)
+                                st.download_button(
+                                    label="📥 Download Complete", 
+                                    data=txt_content, 
+                                    file_name=f"output_{file_base_name}_complete.txt", 
+                                    mime="text/plain", 
+                                    key=f"po_complete_download_{file_base_name}"
+                                )
+                        
+                        # Incomplete Stock Code 下载按钮
+                        with col2:
+                            st.metric("Incomplete Stock Code", len(incomplete_stock_df))
+                            if len(incomplete_stock_df) > 0:
+                                output_incomplete_stock = incomplete_stock_df[['Goods name', 'DO Number', 'Medium Box Code', 'SN', 'Processing Status']].copy()
+                                output_buffer = io.BytesIO()
+                                with pd.ExcelWriter(output_buffer, engine='openpyxl') as writer:
+                                    output_incomplete_stock.to_excel(writer, index=False, sheet_name='Missing Stock Code')
+                                st.download_button(
+                                    label="📥 Download Stock Code", 
+                                    data=output_buffer.getvalue(), 
+                                    file_name=f"output_{file_base_name}_incomplete_stock.xlsx", 
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", 
+                                    key=f"po_incomplete_stock_download_{file_base_name}"
+                                )
+                        
+                        # Incomplete IMEI 下载按钮
+                        with col3:
+                            st.metric("Incomplete IMEI", len(incomplete_imei_df))
+                            if len(incomplete_imei_df) > 0:
+                                output_incomplete_imei = incomplete_imei_df[['Stock Code', 'Goods name', 'IMEI', 'DO Number', 'IMEI Status']].copy()
+                                output_buffer = io.BytesIO()
+                                with pd.ExcelWriter(output_buffer, engine='openpyxl') as writer:
+                                    output_incomplete_imei.to_excel(writer, index=False, sheet_name='IMEI Issues')
+                                st.download_button(
+                                    label="📥 Download IMEI Issues", 
+                                    data=output_buffer.getvalue(), 
+                                    file_name=f"output_{file_base_name}_incomplete_imei.xlsx", 
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", 
+                                    key=f"po_incomplete_imei_download_{file_base_name}"
+                                )
+                        
+                        # Error/Action Items 下载按钮
+                        with col4:
+                            error_rows = error_file_data.get('error_rows', [])
+                            scan_needed = error_file_data.get('scan_needed', [])
+                            adjustment_needed = error_file_data.get('adjustment_needed', [])
+                            error_count = len(error_rows) + len(scan_needed) + len(adjustment_needed)
                             
-                            if error_rows:
-                                error_df = result_df.iloc[error_rows].copy()
-                                error_sheet_data.append(("Error Rows", error_df))
-                            
-                            if scan_needed:
-                                scan_df = pd.DataFrame({
-                                    'Goods Name': scan_needed,
-                                    'Action': ['Needs manual IMEI scan'] * len(scan_needed)
-                                })
-                                error_sheet_data.append(("Scan Needed", scan_df))
-                            
-                            if adjustment_needed:
-                                adjust_df = pd.DataFrame({
-                                    'Goods Name': adjustment_needed,
-                                    'Action': ['Update batch_control to true'] * len(adjustment_needed)
-                                })
-                                error_sheet_data.append(("Adjustment Needed", adjust_df))
-                            
-                            if manual_input_dict:
-                                manual_df = pd.DataFrame({
-                                    'Goods Name': list(manual_input_dict.keys()),
-                                    'Action': ['Manual Stock Code input needed'] * len(manual_input_dict)
-                                })
-                                error_sheet_data.append(("Manual Input Needed", manual_df))
-                            
-                            output_error = io.BytesIO()
-                            with pd.ExcelWriter(output_error, engine='openpyxl') as writer:
-                                for sheet_name, df in error_sheet_data:
-                                    df.to_excel(writer, index=False, sheet_name=sheet_name[:31])
-                            
-                            st.download_button(
-                                label="📥 Download Error/Action File", 
-                                data=output_error.getvalue(), 
-                                file_name="output_po_errors.xlsx", 
-                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", 
-                                key="po_error_download"
-                            )
+                            st.metric("Error/Action Items", error_count)
+                            if error_count > 0:
+                                error_sheet_data = []
+                                
+                                if error_rows:
+                                    error_df = result_df.iloc[error_rows].copy()
+                                    error_sheet_data.append(("Error Rows", error_df))
+                                
+                                if scan_needed:
+                                    scan_df = pd.DataFrame({
+                                        'Goods Name': scan_needed,
+                                        'Action': ['Needs manual IMEI scan'] * len(scan_needed)
+                                    })
+                                    error_sheet_data.append(("Scan Needed", scan_df))
+                                
+                                if adjustment_needed:
+                                    adjust_df = pd.DataFrame({
+                                        'Goods Name': adjustment_needed,
+                                        'Action': ['Update batch_control to true'] * len(adjustment_needed)
+                                    })
+                                    error_sheet_data.append(("Adjustment Needed", adjust_df))
+                                
+                                output_error = io.BytesIO()
+                                with pd.ExcelWriter(output_error, engine='openpyxl') as writer:
+                                    for sheet_name, df in error_sheet_data:
+                                        df.to_excel(writer, index=False, sheet_name=sheet_name[:31])
+                                
+                                st.download_button(
+                                    label="📥 Download Error/Action File", 
+                                    data=output_error.getvalue(), 
+                                    file_name=f"output_{file_base_name}_errors.xlsx", 
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", 
+                                    key=f"po_error_download_{file_base_name}"
+                                )
                     
                     # --- 统计信息部分 ---
                     st.divider()
