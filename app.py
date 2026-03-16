@@ -693,15 +693,22 @@ with tab2:
         st.info(f"📁 {len(uploaded_files_po)} file(s) selected for processing")
         
         if st.button("🚀 Process PO Files", key="po_process"):
+            # ========== 关键改动：创建 expander 来存放处理消息 ==========
+            with st.expander("📋 Processing Details", expanded=False):
+                processing_container = st.container()
+            
+            # 创建进度条（在 expander 外面）
+            progress_bar = st.progress(0)
+            
             with st.spinner('Processing files in progress, please wait...'):
                 all_results = []
                 all_error_data_list = []
                 
-                progress_bar = st.progress(0)
-                
                 # 逐个处理每个文件
                 for file_idx, uploaded_file in enumerate(uploaded_files_po, 1):
-                    st.info(f"⏳ Processing file {file_idx}/{len(uploaded_files_po)}: {uploaded_file.name}")
+                    # ========== 将消息写入 expander 中 ==========
+                    with processing_container:
+                        st.info(f"⏳ Processing file {file_idx}/{len(uploaded_files_po)}: {uploaded_file.name}")
                     
                     result_df, error_file_data = process_po_file(uploaded_file)
                     
@@ -712,15 +719,23 @@ with tab2:
                             'result_df': result_df,
                             'error_data': error_file_data
                         })
-                        st.success(f"✅ File {file_idx} processed successfully")
+                        
+                        with processing_container:
+                            st.success(f"✅ File {file_idx} processed successfully")
                     else:
-                        st.error(f"❌ File {file_idx} processing failed")
+                        with processing_container:
+                            st.error(f"❌ File {file_idx} processing failed")
                     
+                    # 更新进度条
                     progress_bar.progress(file_idx / len(uploaded_files_po))
                 
-                st.success(f"✅ All {len(uploaded_files_po)} files processed!")
+                with processing_container:
+                    st.success(f"✅ All {len(uploaded_files_po)} files processed!")
                 
-                # ========== 关键改动：为每个文件分别输出 ==========
+                # 移除进度条（处理完成后）
+                progress_bar.empty()
+                
+                # ========== 后续输出部分保持不变 ==========
                 if all_results:
                     st.divider()
                     st.subheader("📥 Download Results by File")
@@ -840,6 +855,8 @@ with tab2:
                                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", 
                                     key=f"po_error_download_{file_base_name}"
                                 )
+                        
+                        st.divider()
 
 # --- Shopee Tab ---
 with tab3:
