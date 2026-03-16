@@ -840,44 +840,6 @@ with tab2:
                                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", 
                                     key=f"po_error_download_{file_base_name}"
                                 )
-                    
-                    # --- 统计信息部分 ---
-                    st.divider()
-                    st.subheader("📊 Processing Statistics")
-                    
-                    left_col, spacer_col, right_col = st.columns([2, 0.5, 2])
-                    
-                    # LEFT COLUMN: Stock Code Distribution
-                    with left_col:
-                        st.markdown("#### Stock Code Distribution")
-                        stock_code_complete = len(result_df[result_df['Stock Code'].notna()])
-                        stock_code_incomplete = len(result_df[result_df['Stock Code'].isna()])
-                        
-                        col_stats1, col_stats2 = st.columns(2)
-                        with col_stats1:
-                            st.metric("✅ With Stock Code", stock_code_complete)
-                        with col_stats2:
-                            st.metric("❌ Missing Stock Code", stock_code_incomplete)
-                        
-                        if stock_code_complete > 0 or stock_code_incomplete > 0:
-                            import plotly.graph_objects as go
-                            
-                            stock_code_data = [stock_code_complete, stock_code_incomplete]
-                            stock_code_labels = [f"With Stock Code ({stock_code_complete})", f"Missing Stock Code ({stock_code_incomplete})"]
-                            stock_code_colors = ['#2ecc71', '#e74c3c']
-                            
-                            fig_stock = go.Figure(data=[go.Pie(
-                                labels=stock_code_labels,
-                                values=stock_code_data,
-                                marker=dict(colors=stock_code_colors),
-                                hoverinfo='label+value+percent'
-                            )])
-                            fig_stock.update_layout(
-                                title="Stock Code Completion Status",
-                                height=400,
-                                showlegend=True
-                            )
-                            st.plotly_chart(fig_stock, use_container_width=True)
 
 # --- Shopee Tab ---
 with tab3:
