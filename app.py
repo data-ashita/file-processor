@@ -7,6 +7,8 @@ import re
 import time
 import json
 import os
+import openpyxl
+from datetime import datetime
 from supabase import create_client, Client
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
@@ -189,7 +191,6 @@ def get_google_drive_service():
     return None
 
 def get_file_status_and_date(service, file_id):
-    """Get file status and last modified date from Google Drive in GMT+8"""
     try:
         file = service.files().get(fileId=file_id, fields='id, name, modifiedTime, trashed').execute()
         
@@ -198,14 +199,9 @@ def get_file_status_and_date(service, file_id):
         
         modified_time = file.get('modifiedTime')
         if modified_time:
-            # Convert ISO format to GMT+8
-            from datetime import datetime
             dt = datetime.fromisoformat(modified_time.replace('Z', '+00:00'))
-            
-            # Convert to GMT+8
-            gmt8 = pytz.timezone('Asia/Shanghai')
-            dt_gmt8 = dt.astimezone(gmt8)
-            
+            gmt8 = pytz.timezone('Asia/Kuala_Lumpur')
+            dt_gmt8 = dt.astimezone(gmt8)  # ← 这行漏掉了
             return 'valid', dt_gmt8.strftime('%Y-%m-%d %H:%M:%S')
         
         return 'valid', 'Unknown'
@@ -222,58 +218,34 @@ def update_file_by_id(service, file_id, file_content):
         st.error(f"Error updating file: {e}")
     return False, None, None
 
-# --- Google Drive Integration ---
-def get_google_drive_service():
-    """Initialize Google Drive service using service account credentials from Streamlit Secrets"""
-    try:
-        # Read service account credentials from Streamlit Secrets
-        if "google" in st.secrets:
-            credentials_dict = dict(st.secrets["google"])
-            credentials = service_account.Credentials.from_service_account_info(
-                credentials_dict,
-                scopes=['https://www.googleapis.com/auth/drive']
-            )
-            service = build('drive', 'v3', credentials=credentials)
-            return service
-        else:
-            st.error("Google credentials not found in Streamlit Secrets")
-    except Exception as e:
-        st.error(f"Error connecting to Google Drive: {e}")
-    return None
-
-def get_file_status_and_date(service, file_id):
-    """Get file status and last modified date from Google Drive in GMT+8"""
-    try:
-        file = service.files().get(fileId=file_id, fields='id, name, modifiedTime, trashed').execute()
-        
-        if file.get('trashed'):
-            return 'error', None
-        
-        modified_time = file.get('modifiedTime')
-        if modified_time:
-            # Convert ISO format to GMT+8
-            from datetime import datetime
-            dt = datetime.fromisoformat(modified_time.replace('Z', '+00:00'))
-            
-            # Convert to GMT+8
-            gmt8 = pytz.timezone('Asia/Shanghai')
-            dt_gmt8 = dt.astimezone(gmt8)
-            
-            return 'valid', dt_gmt8.strftime('%Y-%m-%d %H:%M:%S')
-        
-        return 'valid', 'Unknown'
-    except Exception as e:
-        return 'error', None
-
-def update_file_by_id(service, file_id, file_content):
-    """Update a file in Google Drive by ID (overwrites content, keeps ID)"""
-    try:
-        media = MediaIoBaseUpload(file_content, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-        file = service.files().update(fileId=file_id, media_body=media, fields='id, modifiedTime').execute()
-        return True, file.get('id'), file.get('modifiedTime')
-    except Exception as e:
-        st.error(f"Error updating file: {e}")
-    return False, None, None
+def process_price_file(uploaded_file, selected_sheet=None):
+    """Rename sheet to current month and return as BytesIO"""
+    
+    gmt8 = pytz.timezone('Asia/Kuala_Lumpur')
+    current_month = datetime.now(gmt8).month
+    new_sheet_name = f"{current_month}月 (ASHITA)"
+    
+    # Load workbook
+    wb = openpyxl.load_workbook(uploaded_file)
+    sheet_names = wb.sheetnames
+    
+    # Check sheet count
+    if len(sheet_names) > 1 and selected_sheet is None:
+        return None, sheet_names, new_sheet_name  # Need user to select
+    
+    # Use selected sheet or the only sheet
+    target_sheet = selected_sheet if selected_sheet else sheet_names[0]
+    
+    # Rename the target sheet
+    ws = wb[target_sheet]
+    ws.title = new_sheet_name
+    
+    # Save to BytesIO
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    
+    return output, sheet_names, new_sheet_name
 
 # --- PO Processing Helper Functions ---
 def extract_product_id_from_sn(sn):
@@ -372,102 +344,6 @@ def generate_do_number(batch_number, sequence_number):
         do_number = prefix + middle + suffix
     
     return do_number if len(do_number) <= 10 else None
-
-def get_imei_mapping_data(stock_codes):
-    """Batch query imei_mapping table using ashita_stock_code"""
-    if supabase is None or not stock_codes:
-        return {}
-    try:
-        response = supabase.table('imei_mapping').select('ashita_stock_code, batch_control, mapped_supplier').in_('ashita_stock_code', stock_codes).execute()
-        imei_map = {}
-        for item in response.data:
-            stock_code = item.get('ashita_stock_code')
-            if stock_code:
-                imei_map[str(stock_code)] = {
-                    'batch_control': item.get('batch_control', False),
-                    'mapped_supplier': item.get('mapped_supplier')
-                }
-        return imei_map
-    except Exception as e:
-        st.warning(f"Error querying imei_mapping: {e}")
-        return {}
-
-def update_batch_control(goods_name, new_value=True):
-    """Update batch_control status in imei_mapping"""
-    if supabase is None or not goods_name:
-        return False
-    try:
-        supabase.table('imei_mapping').update({'batch_control': new_value}).eq('goods_name', str(goods_name)).execute()
-        return True
-    except Exception:
-        return False
-
-def process_imei_logic(df, imei_mapping_data):
-    """
-    Process IMEI based on five cases using Stock Code lookup:
-    1. Stock Code exists in imei_mapping, batch_control=true, mapped_supplier has code, has IMEI -> use Excel IMEI
-    2. Stock Code exists in imei_mapping, batch_control=true, mapped_supplier has code, no IMEI -> mark for scan
-    3. Stock Code exists in imei_mapping, batch_control=false, mapped_supplier is empty, has IMEI -> use Excel IMEI and mark for adjustment
-    4. Stock Code exists in imei_mapping, batch_control=false, mapped_supplier is empty, no IMEI -> skip
-    5. Stock Code not found in imei_mapping -> error
-    
-    Returns: (processed_df, error_rows, scan_needed_list, adjustment_needed_list)
-    """
-    df['IMEI'] = df['IMEI'].fillna('')
-    df['IMEI Status'] = ''
-    
-    error_rows = []
-    scan_needed = set()
-    adjustment_needed = set()
-    
-    for idx, row in df.iterrows():
-        stock_code = str(row.get('Stock Code', '')).strip() if pd.notna(row.get('Stock Code')) else ''
-        excel_imei = row.get('IMEI', '').strip()
-        goods_name = row.get('Goods name', '').strip()
-        
-        # If no Stock Code, mark as error
-        if not stock_code:
-            df.at[idx, 'IMEI Status'] = 'ERROR: No Stock Code found'
-            error_rows.append(idx)
-            continue
-        
-        # Case 5: Stock Code not found in imei_mapping
-        if stock_code not in imei_mapping_data:
-            df.at[idx, 'IMEI Status'] = 'ERROR: Stock Code not found in imei_mapping'
-            error_rows.append(idx)
-            continue
-        
-        mapping_info = imei_mapping_data[stock_code]
-        batch_control = mapping_info.get('batch_control', False)
-        mapped_supplier = mapping_info.get('mapped_supplier', '')
-        has_supplier = bool(mapped_supplier and str(mapped_supplier).strip())
-        
-        # Case 1: batch_control=true, mapped_supplier has code, has IMEI
-        if batch_control and has_supplier and excel_imei:
-            df.at[idx, 'IMEI'] = excel_imei
-            df.at[idx, 'IMEI Status'] = 'Case 1: Used Excel IMEI'
-        
-        # Case 2: batch_control=true, mapped_supplier has code, no IMEI
-        elif batch_control and has_supplier and not excel_imei:
-            df.at[idx, 'IMEI Status'] = 'Case 2: Needs manual scan'
-            scan_needed.add(stock_code)
-        
-        # Case 3: batch_control=false, mapped_supplier is empty, has IMEI
-        elif not batch_control and not has_supplier and excel_imei:
-            df.at[idx, 'IMEI'] = excel_imei
-            df.at[idx, 'IMEI Status'] = 'Case 3: Used Excel IMEI (needs adjustment)'
-            adjustment_needed.add(stock_code)
-        
-        # Case 4: batch_control=false, mapped_supplier is empty, no IMEI
-        elif not batch_control and not has_supplier and not excel_imei:
-            df.at[idx, 'IMEI'] = ''
-            df.at[idx, 'IMEI Status'] = 'Case 4: Skipped (no IMEI needed)'
-        
-        # Other cases - shouldn't happen based on requirements, but handle gracefully
-        else:
-            df.at[idx, 'IMEI Status'] = 'Not processed (unexpected condition)'
-    
-    return df, error_rows, list(scan_needed), list(adjustment_needed)
 
 def get_imei_mapping_data(stock_codes):
     """Batch query imei_mapping table using ashita_stock_code"""
@@ -935,8 +811,26 @@ with tab3:
     with col_price:
         st.subheader("💰 Price File")
         uploaded_file_price = st.file_uploader("Upload Price Excel file", type=["xlsx", "xls"], key="shopee_price_uploader")
+        
         if uploaded_file_price is not None:
             st.success(f"✓ Price file uploaded: {uploaded_file_price.name}")
+            
+            # Check sheet count
+            wb_check = openpyxl.load_workbook(uploaded_file_price)
+            sheet_names = wb_check.sheetnames
+            uploaded_file_price.seek(0)  # Reset after reading
+            
+            if len(sheet_names) > 1:
+                st.warning(f"⚠️ Multiple sheets detected ({len(sheet_names)} sheets). Please select one:")
+                selected_price_sheet = st.selectbox(
+                    "Select sheet to use:", 
+                    options=sheet_names, 
+                    key="price_sheet_selector"
+                )
+            else:
+                selected_price_sheet = None  # Will auto-use the only sheet
+        else:
+            selected_price_sheet = None
         
         # Display status and date
         if service:
@@ -993,13 +887,23 @@ with tab3:
                     # ========== 修复部分：添加 Price File 上传逻辑 ==========
                     # Upload Price file
                     if uploaded_file_price is not None:
-                        file_content = io.BytesIO(uploaded_file_price.getvalue())
-                        success, file_id, modified_time = update_file_by_id(service, FILE_MAPPING["price"]["id"], file_content)
-                        upload_results["Price"] = success
-                        if success:
-                            st.success(f"✅ Price file uploaded successfully")
+                        uploaded_file_price.seek(0)  # Reset file pointer
+                        processed_price, sheet_names, new_sheet_name = process_price_file(
+                            uploaded_file_price, 
+                            selected_sheet=selected_price_sheet
+                        )
+                        
+                        if processed_price is None:
+                            st.error("❌ Price file has multiple sheets but none was selected.")
                         else:
-                            st.error("❌ Failed to upload Price file")
+                            success, file_id, modified_time = update_file_by_id(
+                                service, FILE_MAPPING["price"]["id"], processed_price
+                            )
+                            upload_results["Price"] = success
+                            if success:
+                                st.success(f"✅ Price file uploaded successfully (sheet renamed to '{new_sheet_name}')")
+                            else:
+                                st.error("❌ Failed to upload Price file")
                     # ========== 修复部分结束 ==========
                     
                     # Summary
