@@ -15,11 +15,13 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload, MediaIoBaseUpload
 
 # --- Supabase Connection Configuration ---
-SUPABASE_URL = "https://tqpwktjctngqtyisqtma.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRxcHdrdGpjdG5ncXR5aXNxdG1hIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjcyNjA2MTMsImV4cCI6MjA4MjgzNjYxM30.waTJLaeDz6k1xWhuSJQnW4nqjul6ZDOgnWK0MKrlSp4"
-
 try:
+    SUPABASE_URL = st.secrets["supabase"]["url"]
+    SUPABASE_KEY = st.secrets["supabase"]["key"]
     supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+except KeyError:
+    st.error("Supabase credentials not found in Streamlit Secrets. Please add a [supabase] section with 'url' and 'key'.")
+    supabase = None
 except Exception as e:
     st.error(f"Failed to connect to Supabase: {e}")
     supabase = None
